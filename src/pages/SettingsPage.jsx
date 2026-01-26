@@ -481,16 +481,18 @@ export default function SettingsPage() {
         <button
           type="button"
           onClick={saveAllChanges}
-          disabled={busy || !hasChanges}
+          disabled={busy}
           className={cn(
             "w-full rounded-2xl py-3 font-semibold transition",
-            "bg-white text-gray-950 hover:bg-white/95",
-            "shadow-[0_18px_40px_rgba(255,255,255,0.18)]",
+            hasChanges
+              ? "bg-white text-gray-950 hover:bg-white/95 shadow-[0_18px_40px_rgba(255,255,255,0.18)]"
+              : "bg-white/20 text-white/60 border border-white/10",
             "disabled:opacity-60 disabled:cursor-not-allowed"
           )}
         >
-          {busy ? "Saving..." : "Save changes"}
+          {busy ? "Saving..." : hasChanges ? "Save changes" : "No changes"}
         </button>
+
       </Section>
 
       {/* DATA & PRIVACY */}

@@ -1,31 +1,35 @@
+// src/pages/PublicProfilePage.jsx
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { toDirectImageUrl } from "../lib/url";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Phone,
-  Mail,
-  Globe,
-  Link as LinkIcon,
-  Instagram,
-  Linkedin,
-  Facebook,
-  Youtube,
-  Twitter,
-  Music2,
-  MapPin,
-  MessageCircle,
-  Send,
-  FileText,
-} from "lucide-react";
+import { Phone, Mail, Globe } from "lucide-react";
 import { subscribePublicProfile } from "../lib/profile";
+import { toDirectImageUrl } from "../lib/url";
+
+// ✅ Brand icons (auto-detect)
+import {
+  FaInstagram,
+  FaSnapchatGhost,
+  FaFacebookF,
+  FaTwitter,
+  FaTwitch,
+  FaDiscord,
+  FaWhatsapp,
+  FaViber,
+  FaYoutube,
+  FaTiktok,
+  FaPinterestP,
+  FaLinkedinIn,
+  FaTelegramPlane,
+  FaWeixin, // WeChat
+  FaLink, // fallback
+} from "react-icons/fa";
 
 function cn(...a) {
   return a.filter(Boolean).join(" ");
 }
 
 function normalizeUsername(u) {
-  // input may be "@name" or "name"
   return (u || "").replace("@", "").trim().toLowerCase();
 }
 
@@ -37,67 +41,78 @@ function safeUrl(url) {
   return `https://${u}`;
 }
 
-/** ✅ Social icon mapping (TikTok supported) */
-function socialIcon(label) {
-  const s = (label || "").toLowerCase();
-  if (s.includes("insta")) return Instagram;
-  if (s.includes("linkedin")) return Linkedin;
-  if (s.includes("facebook")) return Facebook;
-  if (s.includes("youtube")) return Youtube;
-  if (s.includes("tiktok") || s.includes("tik tok")) return Music2;
-  if (s.includes("twitter") || s === "x" || s.includes(" x ")) return Twitter;
-  return LinkIcon;
+// ✅ Auto-detect icon by label OR url
+function pickSocialIcon(label, url) {
+  const s = `${label || ""} ${url || ""}`.toLowerCase();
+
+  if (s.includes("instagram.com") || s.includes("insta")) return FaInstagram;
+  if (s.includes("snapchat.com") || s.includes("snap")) return FaSnapchatGhost;
+  if (s.includes("facebook.com") || s.includes("fb")) return FaFacebookF;
+
+  // X / Twitter (use twitter icon for stability)
+  if (s.includes("x.com") || s.includes("twitter.com") || s.includes("twitter") || s.includes(" x "))
+    return FaTwitter;
+
+  if (s.includes("twitch.tv") || s.includes("twitch")) return FaTwitch;
+  if (s.includes("discord.gg") || s.includes("discord.com") || s.includes("discord"))
+    return FaDiscord;
+
+  if (s.includes("wa.me") || s.includes("whatsapp.com") || s.includes("whatsapp"))
+    return FaWhatsapp;
+  if (s.includes("viber.com") || s.includes("viber")) return FaViber;
+
+  // Threads: no stable FA icon here, fallback
+  if (s.includes("threads.net") || s.includes("threads")) return FaLink;
+
+  if (s.includes("youtube.com") || s.includes("youtu.be") || s.includes("youtube"))
+    return FaYoutube;
+
+  if (s.includes("tiktok.com") || s.includes("tiktok")) return FaTiktok;
+
+  if (s.includes("pinterest.com") || s.includes("pinterest")) return FaPinterestP;
+
+  if (s.includes("linkedin.com") || s.includes("linkedin")) return FaLinkedinIn;
+
+  if (s.includes("t.me") || s.includes("telegram.me") || s.includes("telegram"))
+    return FaTelegramPlane;
+
+  if (s.includes("wechat") || s.includes("weixin") || s.includes("weixin.qq.com"))
+    return FaWeixin;
+
+  return FaLink;
 }
 
-/** ✅ Contact kind -> icon */
-function contactKindIcon(kind) {
-  const k = (kind || "").toLowerCase();
-  if (k === "phone") return Phone;
-  if (k === "email") return Mail;
-  if (k === "website") return Globe;
-  if (k === "whatsapp") return MessageCircle;
-  if (k === "telegram") return Send;
-  if (k === "location" || k === "address") return MapPin;
-  return LinkIcon;
-}
-
-/** ✅ Contact kind -> link (if possible) */
-function contactKindHref(kind, value) {
-  const k = (kind || "").toLowerCase();
-  const v = (value || "").trim();
-  if (!v) return "";
-
-  if (k === "phone") return `tel:${v}`;
-  if (k === "email") return `mailto:${v}`;
-  if (k === "website") return safeUrl(v);
-  if (k === "whatsapp") return `https://wa.me/${v.replace(/\D/g, "")}`;
-  if (k === "telegram") return safeUrl(v);
-  if (k === "location" || k === "address") {
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v)}`;
-  }
-
-  // if they paste a url in custom field, open it
-  if (v.startsWith("http://") || v.startsWith("https://")) return v;
-
-  return "";
-}
-
-function downloadVCF({ fullName, phone, email, website }) {
+function downloadVCF({ fullName, fields }) {
   const esc = (v) => (v || "").replace(/\n/g, " ").trim();
 
-  const vcf = [
-    "BEGIN:VCARD",
-    "VERSION:3.0",
-    `FN:${esc(fullName)}`,
-    phone ? `TEL:${esc(phone)}` : null,
-    email ? `EMAIL:${esc(email)}` : null,
-    website ? `URL:${esc(website)}` : null,
-    "END:VCARD",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  // fields: [{ label, value }]
+  // We'll map some common labels to vCard properties when possible.
+  const lines = ["BEGIN:VCARD", "VERSION:3.0", `FN:${esc(fullName)}`];
 
-  const blob = new Blob([vcf], { type: "text/vcard" });
+  const lower = (s) => (s || "").toLowerCase();
+
+  for (const f of fields || []) {
+    const label = lower(f.label);
+    const value = esc(f.value);
+    if (!value) continue;
+
+    if (label.includes("phone") || label === "tel" || label === "mobile") {
+      lines.push(`TEL:${value}`);
+    } else if (label.includes("email")) {
+      lines.push(`EMAIL:${value}`);
+    } else if (label.includes("website") || label.includes("url")) {
+      lines.push(`URL:${safeUrl(value)}`);
+    } else if (label.includes("location") || label.includes("address")) {
+      lines.push(`ADR:${value}`);
+    } else {
+      // custom field -> NOTE
+      lines.push(`NOTE:${esc(`${f.label}: ${f.value}`)}`);
+    }
+  }
+
+  lines.push("END:VCARD");
+
+  const blob = new Blob([lines.join("\n")], { type: "text/vcard" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `${esc(fullName || "contact").replace(/\s+/g, "_")}.vcf`;
@@ -118,7 +133,7 @@ export default function PublicProfilePage() {
 
     setLoading(true);
 
-    // ✅ IMPORTANT: only ONE "@"
+    // ✅ IMPORTANT: subscribePublicProfile expects "@username"
     const unsub = subscribePublicProfile("@" + username, (p) => {
       setProfile(p);
       setLoading(false);
@@ -127,6 +142,7 @@ export default function PublicProfilePage() {
     return () => unsub?.();
   }, [username]);
 
+  // Default theme for loading / not found states
   const fallbackTheme = {
     background: "#0b0f16",
     card: "#0f172a",
@@ -157,6 +173,7 @@ export default function PublicProfilePage() {
     );
   }
 
+  // If doc doesn't exist
   if (!profile) {
     return (
       <div
@@ -171,6 +188,7 @@ export default function PublicProfilePage() {
     );
   }
 
+  // If it's a redirect stub, show quick redirect message while effect navigates
   if (profile.redirectTo) {
     return (
       <div
@@ -185,6 +203,7 @@ export default function PublicProfilePage() {
     );
   }
 
+  // ✅ Publish toggle support
   if (profile.published === false) {
     return (
       <div
@@ -201,11 +220,15 @@ export default function PublicProfilePage() {
 
   const blocks = Array.isArray(profile?.blocks) ? profile.blocks : [];
   const header = blocks.find((b) => b.type === "header")?.data || {};
+
   const fullName = header.fullName || `@${username}`;
   const subtitle = [header.position, header.company].filter(Boolean).join(" • ");
 
   return (
-    <div className="min-h-screen relative overflow-hidden" style={{ background: theme.background }}>
+    <div
+      className="min-h-screen relative overflow-hidden"
+      style={{ background: theme.background }}
+    >
       <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent" />
       <div className="absolute -top-20 -left-24 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
       <div className="absolute top-48 -right-24 h-80 w-80 rounded-full bg-white/10 blur-3xl" />
@@ -271,13 +294,15 @@ export default function PublicProfilePage() {
                       exit={{ opacity: 0, y: 8 }}
                       transition={{ duration: 0.18 }}
                     >
-                      <RenderBlock block={b} headerFullName={fullName} />
+                      <RenderBlock
+                        block={b}
+                        headerFullName={fullName}
+                      />
                     </motion.div>
                   ))}
                 </AnimatePresence>
               </div>
 
-              {/* If you want footer to control this, delete this block */}
               <div className="mt-6 text-center text-xs text-white/35">
                 Powered by SmartCard
               </div>
@@ -289,9 +314,12 @@ export default function PublicProfilePage() {
   );
 }
 
+/* ---------- Block rendering ---------- */
+
 function RenderBlock({ block, headerFullName }) {
   const d = block.data || {};
 
+  // Header already rendered at top
   if (block.type === "header") return null;
 
   if (block.type === "divider") {
@@ -327,29 +355,27 @@ function RenderBlock({ block, headerFullName }) {
     );
   }
 
-  // ✅ Save Contact: supports items[] + legacy phone/email/website
+  /* ✅ SAVE CONTACT — supports dynamic fields */
   if (block.type === "save_contact") {
-    const fullName = d.fullName?.trim() || headerFullName;
+    const fullName = (d.fullName || "").trim() || headerFullName;
 
-    const items = Array.isArray(d.items) ? d.items : [];
-
-    const phone =
-      items.find((i) => (i.kind || "").toLowerCase() === "phone")?.value?.trim() ||
-      (d.phone || "").trim();
-
-    const email =
-      items.find((i) => (i.kind || "").toLowerCase() === "email")?.value?.trim() ||
-      (d.email || "").trim();
-
-    const websiteRaw =
-      items.find((i) => (i.kind || "").toLowerCase() === "website")?.value?.trim() ||
-      (d.website || "").trim();
-
-    const website = safeUrl(websiteRaw);
+    // New format: data.fields = [{ id,label,value }]
+    // Fallback to old format: phone/email/website
+    const fields =
+      Array.isArray(d.fields) && d.fields.length
+        ? d.fields.map((f) => ({
+            label: f.label || "",
+            value: f.value || "",
+          }))
+        : [
+            { label: "Phone", value: d.phone || "" },
+            { label: "Email", value: d.email || "" },
+            { label: "Website", value: d.website || "" },
+          ];
 
     return (
       <button
-        onClick={() => downloadVCF({ fullName, phone, email, website })}
+        onClick={() => downloadVCF({ fullName, fields })}
         className={cn(
           "w-full rounded-2xl px-4 py-3 font-semibold text-sm",
           "bg-white text-gray-950 hover:bg-white/95 transition",
@@ -361,7 +387,7 @@ function RenderBlock({ block, headerFullName }) {
     );
   }
 
-  // ✅ Socials (TikTok supported)
+  /* ✅ SOCIALS — auto-detect icons */
   if (block.type === "socials") {
     const items = Array.isArray(d.items) ? d.items : [];
     if (items.length === 0) return null;
@@ -370,9 +396,10 @@ function RenderBlock({ block, headerFullName }) {
       <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
         <div className="grid grid-cols-5 gap-2">
           {items.slice(0, 10).map((it) => {
-            const Icon = socialIcon(it.label);
             const url = safeUrl(it.url);
             if (!url) return null;
+
+            const Icon = pickSocialIcon(it.label, it.url);
 
             return (
               <a
@@ -396,85 +423,89 @@ function RenderBlock({ block, headerFullName }) {
     );
   }
 
-  // ✅ Contact: supports items[] + legacy
+  /* ✅ CONTACT — supports dynamic fields + nice icons for phone/email/url */
   if (block.type === "contact") {
-    const items = Array.isArray(d.items) ? d.items : [];
+    // New format: data.fields = [{ id,label,value }]
+    // Fallback to old format: phone/email/website
+    const fields =
+      Array.isArray(d.fields) && d.fields.length
+        ? d.fields
+        : [
+            { id: "phone", label: "Phone", value: d.phone || "" },
+            { id: "email", label: "Email", value: d.email || "" },
+            { id: "website", label: "Website", value: d.website || "" },
+          ];
 
-    const legacy = [
-      d.phone ? { id: "p", kind: "phone", label: "Phone", value: d.phone } : null,
-      d.email ? { id: "e", kind: "email", label: "Email", value: d.email } : null,
-      d.website ? { id: "w", kind: "website", label: "Website", value: d.website } : null,
-    ].filter(Boolean);
-
-    const list = items.length ? items : legacy;
-
-    if (!list.length) {
+    const nonEmpty = fields.filter((f) => (f?.value || "").trim());
+    if (nonEmpty.length === 0) {
       return (
         <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-          <div className="text-sm text-white/55 px-2 py-1">No contact info yet.</div>
+          <div className="text-sm text-white/55 px-2 py-1">
+            No contact info yet.
+          </div>
         </div>
       );
     }
 
     return (
       <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2">
-        {list.map((it) => {
-          const value = (it.value || "").trim();
-          if (!value) return null;
+        {nonEmpty.map((f) => {
+          const label = (f.label || "").toLowerCase();
+          const val = (f.value || "").trim();
 
-          const Icon = contactKindIcon(it.kind);
-          const href = contactKindHref(it.kind, value);
+          let href = "";
+          let Icon = Globe;
+
+          if (label.includes("phone") || label.includes("mobile") || label === "tel") {
+            href = `tel:${val}`;
+            Icon = Phone;
+          } else if (label.includes("email")) {
+            href = `mailto:${val}`;
+            Icon = Mail;
+          } else if (label.includes("website") || label.includes("url") || val.startsWith("http")) {
+            href = safeUrl(val);
+            Icon = Globe;
+          } else {
+            // For custom contact fields, don't force a link
+            href = "";
+            Icon = Globe;
+          }
 
           const row = (
             <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-white/80 hover:bg-white/10 hover:text-white transition">
               <Icon size={18} />
               <div className="min-w-0">
-                <div className="text-[11px] text-white/45">
-                  {it.label || it.kind || "Contact"}
-                </div>
-                <div className="text-sm font-medium break-all">{value}</div>
+                <div className="text-xs text-white/50">{f.label}</div>
+                <div className="text-sm font-medium break-all">{val}</div>
               </div>
             </div>
           );
 
-          return href ? (
+          if (!href) return <div key={f.id || f.label}>{row}</div>;
+
+          return (
             <a
-              key={it.id}
+              key={f.id || f.label}
               href={href}
               target={href.startsWith("http") ? "_blank" : undefined}
-              rel="noreferrer"
+              rel={href.startsWith("http") ? "noreferrer" : undefined}
             >
               {row}
             </a>
-          ) : (
-            <div key={it.id}>{row}</div>
           );
         })}
       </div>
     );
   }
 
-  // ✅ Footer: lines[] (dynamic)
+  /* ✅ FOOTER — editable text */
   if (block.type === "footer") {
-    const lines = Array.isArray(d.lines)
-      ? d.lines
-      : d.text
-      ? [d.text]
-      : [];
-
-    if (!lines.length) return null;
+    const text = (d.text || "").trim();
+    if (!text) return null;
 
     return (
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-center space-y-1">
-        <div className="flex items-center justify-center gap-2 text-white/60 text-xs mb-1">
-          <FileText size={14} />
-          <span>Footer</span>
-        </div>
-        {lines.filter(Boolean).map((line, idx) => (
-          <div key={idx} className="text-xs text-white/55 leading-relaxed">
-            {line}
-          </div>
-        ))}
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-white/70 text-sm">
+        {text}
       </div>
     );
   }

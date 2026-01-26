@@ -1,3 +1,4 @@
+// src/pages/EditorPage.jsx
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -9,20 +10,10 @@ import {
   Type,
   Link as LinkIcon,
   Phone,
+  Mail,
   Globe,
   Layout,
   Minus,
-  Mail,
-  MapPin,
-  MessageCircle,
-  Send,
-  Music2,
-  Instagram,
-  Linkedin,
-  Facebook,
-  Youtube,
-  Twitter,
-  FileText,
 } from "lucide-react";
 import { useAuth } from "../lib/useAuth";
 import { getMyUserDoc } from "../lib/auth";
@@ -43,6 +34,25 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
+// ✅ Brand icons (auto-detect) — requires: npm i react-icons
+import {
+  FaInstagram,
+  FaSnapchatGhost,
+  FaFacebookF,
+  FaTwitter,
+  FaTwitch,
+  FaDiscord,
+  FaWhatsapp,
+  FaViber,
+  FaYoutube,
+  FaTiktok,
+  FaPinterestP,
+  FaLinkedinIn,
+  FaTelegramPlane,
+  FaWeixin,
+  FaLink,
+} from "react-icons/fa";
+
 function cn(...a) {
   return a.filter(Boolean).join(" ");
 }
@@ -59,68 +69,79 @@ function safeUrl(url) {
   return `https://${u}`;
 }
 
-function downloadVCF({ fullName, phone, email, website }) {
+// ✅ Auto-detect icon by label OR url
+function pickSocialIcon(label, url) {
+  const s = `${label || ""} ${url || ""}`.toLowerCase();
+
+  if (s.includes("instagram.com") || s.includes("insta")) return FaInstagram;
+  if (s.includes("snapchat.com") || s.includes("snap")) return FaSnapchatGhost;
+  if (s.includes("facebook.com") || s.includes("fb")) return FaFacebookF;
+
+  // X / Twitter (using Twitter icon for stability)
+  if (s.includes("x.com") || s.includes("twitter.com") || s.includes("twitter") || s.includes(" x "))
+    return FaTwitter;
+
+  if (s.includes("twitch.tv") || s.includes("twitch")) return FaTwitch;
+  if (s.includes("discord.gg") || s.includes("discord.com") || s.includes("discord"))
+    return FaDiscord;
+
+  if (s.includes("wa.me") || s.includes("whatsapp.com") || s.includes("whatsapp"))
+    return FaWhatsapp;
+  if (s.includes("viber.com") || s.includes("viber")) return FaViber;
+
+  // Threads: fallback (no stable FA icon in this pack)
+  if (s.includes("threads.net") || s.includes("threads")) return FaLink;
+
+  if (s.includes("youtube.com") || s.includes("youtu.be") || s.includes("youtube"))
+    return FaYoutube;
+
+  if (s.includes("tiktok.com") || s.includes("tiktok")) return FaTiktok;
+
+  if (s.includes("pinterest.com") || s.includes("pinterest")) return FaPinterestP;
+
+  if (s.includes("linkedin.com") || s.includes("linkedin")) return FaLinkedinIn;
+
+  if (s.includes("t.me") || s.includes("telegram.me") || s.includes("telegram"))
+    return FaTelegramPlane;
+
+  if (s.includes("wechat") || s.includes("weixin") || s.includes("weixin.qq.com"))
+    return FaWeixin;
+
+  return FaLink;
+}
+
+function downloadVCF({ fullName, fields }) {
   const esc = (v) => (v || "").replace(/\n/g, " ").trim();
+  const lower = (s) => (s || "").toLowerCase();
 
-  const vcf = [
-    "BEGIN:VCARD",
-    "VERSION:3.0",
-    `FN:${esc(fullName)}`,
-    phone ? `TEL:${esc(phone)}` : null,
-    email ? `EMAIL:${esc(email)}` : null,
-    website ? `URL:${esc(website)}` : null,
-    "END:VCARD",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const lines = ["BEGIN:VCARD", "VERSION:3.0", `FN:${esc(fullName)}`];
 
-  const blob = new Blob([vcf], { type: "text/vcard" });
+  for (const f of fields || []) {
+    const label = lower(f.label);
+    const value = esc(f.value);
+    if (!value) continue;
+
+    if (label.includes("phone") || label === "tel" || label === "mobile") {
+      lines.push(`TEL:${value}`);
+    } else if (label.includes("email")) {
+      lines.push(`EMAIL:${value}`);
+    } else if (label.includes("website") || label.includes("url")) {
+      lines.push(`URL:${safeUrl(value)}`);
+    } else if (label.includes("location") || label.includes("address")) {
+      lines.push(`ADR:${value}`);
+    } else {
+      lines.push(`NOTE:${esc(`${f.label}: ${f.value}`)}`);
+    }
+  }
+
+  lines.push("END:VCARD");
+
+  const blob = new Blob([lines.join("\n")], { type: "text/vcard" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `${esc(fullName || "contact").replace(/\s+/g, "_")}.vcf`;
   a.click();
   URL.revokeObjectURL(a.href);
-}
-
-/** ---------- SOCIAL ICONS (preview) ---------- */
-function socialIcon(label) {
-  const s = (label || "").toLowerCase();
-  if (s.includes("insta")) return Instagram;
-  if (s.includes("linkedin")) return Linkedin;
-  if (s.includes("facebook")) return Facebook;
-  if (s.includes("youtube")) return Youtube;
-  if (s.includes("tiktok") || s.includes("tik tok")) return Music2;
-  if (s.includes("twitter") || s === "x" || s.includes(" x ")) return Twitter;
-  return LinkIcon;
-}
-
-/** ---------- Contact kind -> icon (preview) ---------- */
-function contactKindIcon(kind) {
-  const k = (kind || "").toLowerCase();
-  if (k === "phone") return Phone;
-  if (k === "email") return Mail;
-  if (k === "website") return Globe;
-  if (k === "whatsapp") return MessageCircle;
-  if (k === "telegram") return Send;
-  if (k === "location" || k === "address") return MapPin;
-  return LinkIcon;
-}
-
-function defaultSaveContactItems() {
-  return [
-    { id: uid(), kind: "phone", label: "Phone", value: "" },
-    { id: uid(), kind: "email", label: "Email", value: "" },
-    { id: uid(), kind: "website", label: "Website", value: "" },
-  ];
-}
-
-function defaultContactItems() {
-  return [
-    { id: uid(), kind: "phone", label: "Phone", value: "" },
-    { id: uid(), kind: "email", label: "Email", value: "" },
-    { id: uid(), kind: "website", label: "Website", value: "" },
-    { id: uid(), kind: "location", label: "Location", value: "" },
-  ];
 }
 
 const BLOCKS = [
@@ -149,9 +170,12 @@ const BLOCKS = [
       type: "save_contact",
       data: {
         fullName: "",
-        // ✅ NEW dynamic fields
-        items: defaultSaveContactItems(),
-        // (legacy support: phone/email/website may exist from old data)
+        // ✅ dynamic fields
+        fields: [
+          { id: uid(), label: "Phone", value: "" },
+          { id: uid(), label: "Email", value: "" },
+          { id: uid(), label: "Website", value: "" },
+        ],
       },
     }),
   },
@@ -183,9 +207,12 @@ const BLOCKS = [
       id: uid(),
       type: "contact",
       data: {
-        // ✅ NEW dynamic fields
-        items: defaultContactItems(),
-        // (legacy support: phone/email/website may exist from old data)
+        // ✅ dynamic fields
+        fields: [
+          { id: uid(), label: "Phone", value: "" },
+          { id: uid(), label: "Email", value: "" },
+          { id: uid(), label: "Website", value: "" },
+        ],
       },
     }),
   },
@@ -200,7 +227,7 @@ const BLOCKS = [
         items: [
           { id: uid(), label: "Instagram", url: "https://instagram.com/" },
           { id: uid(), label: "LinkedIn", url: "https://linkedin.com/in/" },
-          { id: uid(), label: "TikTok", url: "https://www.tiktok.com/@" },
+          { id: uid(), label: "TikTok", url: "https://tiktok.com/" },
         ],
       },
     }),
@@ -208,14 +235,11 @@ const BLOCKS = [
   {
     type: "footer",
     label: "Footer",
-    icon: FileText,
+    icon: Type,
     template: () => ({
       id: uid(),
       type: "footer",
-      data: {
-        // ✅ NEW dynamic lines
-        lines: ["Made with SmartCard"],
-      },
+      data: { text: "Made with SmartCard" },
     }),
   },
   {
@@ -279,18 +303,22 @@ export default function EditorPage() {
 
       const normalizedProfile = {
         ...safeProfile,
-        theme: safeProfile.theme || {
-          background: "#0b0f16",
-          card: "#0f172a",
-          primary: "#ffffff",
-        },
+        theme:
+          safeProfile.theme || {
+            background: "#0b0f16",
+            card: "#0f172a",
+            primary: "#ffffff",
+          },
         published: safeProfile.published !== false,
       };
 
-      setProfile(normalizedProfile);
-      setBlocks(safeBlocks);
+      // ✅ Backward compatibility migration (old save_contact/contact fields -> dynamic)
+      const migratedBlocks = safeBlocks.map((b) => migrateBlock(b));
 
-      setSelectedId(safeBlocks[0]?.id || null);
+      setProfile(normalizedProfile);
+      setBlocks(migratedBlocks);
+
+      setSelectedId(migratedBlocks[0]?.id || null);
     })();
 
     return () => {
@@ -358,6 +386,7 @@ export default function EditorPage() {
     setBlocks((items) => arrayMove(items, oldIndex, newIndex));
   }
 
+  // Safe conditional returns AFTER hooks
   if (loading) {
     return (
       <div className="min-h-[70vh] grid place-items-center text-white/70">
@@ -462,12 +491,13 @@ export default function EditorPage() {
         </div>
       </Panel>
 
-      {/* MIDDLE: Live Preview (Canvas) */}
+      {/* MIDDLE: Live Preview */}
       <Panel
         title="Live Preview"
         className="lg:col-span-6"
         right={
           <div className="flex flex-wrap gap-2 items-center">
+            {/* Publish toggle */}
             {profile && (
               <button
                 type="button"
@@ -541,6 +571,7 @@ export default function EditorPage() {
 
       {/* RIGHT: Properties */}
       <Panel title="Properties" className="lg:col-span-3">
+        {/* Theme editor */}
         {profile && (
           <div className="mb-5 space-y-3">
             <div className="text-sm font-medium text-white">Theme</div>
@@ -608,6 +639,64 @@ export default function EditorPage() {
   );
 }
 
+/* ---------- Migration helpers ---------- */
+
+function migrateBlock(block) {
+  const b = { ...block, data: { ...(block.data || {}) } };
+
+  // save_contact: old phone/email/website -> fields[]
+  if (b.type === "save_contact") {
+    if (!Array.isArray(b.data.fields)) {
+      const fields = [];
+      if (b.data.phone != null) fields.push({ id: uid(), label: "Phone", value: b.data.phone });
+      if (b.data.email != null) fields.push({ id: uid(), label: "Email", value: b.data.email });
+      if (b.data.website != null) fields.push({ id: uid(), label: "Website", value: b.data.website });
+
+      if (fields.length === 0) {
+        fields.push({ id: uid(), label: "Phone", value: "" });
+        fields.push({ id: uid(), label: "Email", value: "" });
+        fields.push({ id: uid(), label: "Website", value: "" });
+      }
+
+      b.data.fields = fields;
+
+      // optional: remove old keys
+      delete b.data.phone;
+      delete b.data.email;
+      delete b.data.website;
+    }
+  }
+
+  // contact: old phone/email/website -> fields[]
+  if (b.type === "contact") {
+    if (!Array.isArray(b.data.fields)) {
+      const fields = [];
+      if (b.data.phone != null) fields.push({ id: uid(), label: "Phone", value: b.data.phone });
+      if (b.data.email != null) fields.push({ id: uid(), label: "Email", value: b.data.email });
+      if (b.data.website != null) fields.push({ id: uid(), label: "Website", value: b.data.website });
+
+      if (fields.length === 0) {
+        fields.push({ id: uid(), label: "Phone", value: "" });
+        fields.push({ id: uid(), label: "Email", value: "" });
+        fields.push({ id: uid(), label: "Website", value: "" });
+      }
+
+      b.data.fields = fields;
+
+      delete b.data.phone;
+      delete b.data.email;
+      delete b.data.website;
+    }
+  }
+
+  // footer: ensure text exists
+  if (b.type === "footer") {
+    if (typeof b.data.text !== "string") b.data.text = "";
+  }
+
+  return b;
+}
+
 /* ---------- Preview Canvas ---------- */
 
 function PreviewCard({ blocks, theme, selectedId, onSelect, username }) {
@@ -620,6 +709,7 @@ function PreviewCard({ blocks, theme, selectedId, onSelect, username }) {
       className="rounded-3xl border border-white/10 overflow-hidden shadow-[0_30px_80px_rgba(0,0,0,0.45)]"
       style={{ background: theme.card }}
     >
+      {/* Cover */}
       <div className="h-36 bg-white/5 relative overflow-hidden">
         {header.coverImageUrl ? (
           <img
@@ -632,6 +722,7 @@ function PreviewCard({ blocks, theme, selectedId, onSelect, username }) {
       </div>
 
       <div className="-mt-10 px-5 pb-6">
+        {/* Avatar */}
         <div className="h-20 w-20 rounded-2xl border-4 border-black/30 bg-white/10 overflow-hidden">
           {header.profileImageUrl ? (
             <img
@@ -708,32 +799,19 @@ function RenderBlock({ block, headerFullName }) {
     );
   }
 
-  // ✅ Save Contact: supports new items[] + legacy fields
   if (block.type === "save_contact") {
     const fullName = d.fullName?.trim() || headerFullName;
 
-    const items = Array.isArray(d.items) ? d.items : [];
-
-    const phone =
-      items.find((i) => (i.kind || "").toLowerCase() === "phone")?.value?.trim() ||
-      (d.phone || "").trim();
-
-    const email =
-      items.find((i) => (i.kind || "").toLowerCase() === "email")?.value?.trim() ||
-      (d.email || "").trim();
-
-    const websiteRaw =
-      items.find((i) => (i.kind || "").toLowerCase() === "website")?.value?.trim() ||
-      (d.website || "").trim();
-
-    const website = safeUrl(websiteRaw);
-
+    const fields = Array.isArray(d.fields) ? d.fields : [];
     return (
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          downloadVCF({ fullName, phone, email, website });
+          downloadVCF({
+            fullName,
+            fields: fields.map((f) => ({ label: f.label || "", value: f.value || "" })),
+          });
         }}
         className={cn(
           "w-full rounded-2xl px-4 py-3 font-semibold text-sm",
@@ -746,7 +824,6 @@ function RenderBlock({ block, headerFullName }) {
     );
   }
 
-  // ✅ Socials: show proper icons based on label (TikTok supported)
   if (block.type === "socials") {
     const items = Array.isArray(d.items) ? d.items : [];
     if (items.length === 0) return null;
@@ -757,7 +834,8 @@ function RenderBlock({ block, headerFullName }) {
           {items.slice(0, 10).map((it) => {
             const url = safeUrl(it.url);
             if (!url) return null;
-            const Icon = socialIcon(it.label);
+
+            const Icon = pickSocialIcon(it.label, it.url);
 
             return (
               <div
@@ -777,48 +855,39 @@ function RenderBlock({ block, headerFullName }) {
     );
   }
 
-  // ✅ Contact: supports new items[] + legacy fields
   if (block.type === "contact") {
-    const items = Array.isArray(d.items) ? d.items : [];
+    const fields = Array.isArray(d.fields) ? d.fields : [];
+    const nonEmpty = fields.filter((f) => (f?.value || "").trim());
 
-    const legacy = [
-      d.phone ? { id: "p", kind: "phone", label: "Phone", value: d.phone } : null,
-      d.email ? { id: "e", kind: "email", label: "Email", value: d.email } : null,
-      d.website ? { id: "w", kind: "website", label: "Website", value: d.website } : null,
-    ].filter(Boolean);
-
-    const list = items.length ? items : legacy;
-
-    if (!list.length) {
+    if (nonEmpty.length === 0) {
       return (
         <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-          <div className="text-sm text-white/55 px-2 py-1">
-            No contact info yet.
-          </div>
+          <div className="text-sm text-white/55 px-2 py-1">No contact info yet.</div>
         </div>
       );
     }
 
     return (
       <div className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2">
-        {list.map((it) => {
-          const value = (it.value || "").trim();
-          if (!value) return null;
+        {nonEmpty.map((f) => {
+          const label = (f.label || "").toLowerCase();
+          const val = (f.value || "").trim();
 
-          const Icon = contactKindIcon(it.kind);
+          let Icon = Globe;
+          if (label.includes("phone") || label.includes("mobile") || label === "tel") Icon = Phone;
+          if (label.includes("email")) Icon = Mail;
+          if (label.includes("website") || label.includes("url") || val.startsWith("http")) Icon = Globe;
 
           return (
             <div
-              key={it.id}
+              key={f.id || f.label}
               className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-white/80"
-              title={it.label || it.kind}
+              title={f.label}
             >
               <Icon size={18} />
               <div className="min-w-0">
-                <div className="text-[11px] text-white/45">
-                  {it.label || it.kind || "Contact"}
-                </div>
-                <div className="text-sm font-medium break-all">{value}</div>
+                <div className="text-xs text-white/50">{f.label}</div>
+                <div className="text-sm font-medium break-all">{val}</div>
               </div>
             </div>
           );
@@ -827,22 +896,13 @@ function RenderBlock({ block, headerFullName }) {
     );
   }
 
-  // ✅ Footer: dynamic lines
   if (block.type === "footer") {
-    const lines = Array.isArray(d.lines)
-      ? d.lines
-      : d.text
-      ? [d.text]
-      : [];
-    if (!lines.length) return null;
+    const text = (d.text || "").trim();
+    if (!text) return null;
 
     return (
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-center space-y-1">
-        {lines.filter(Boolean).map((line, idx) => (
-          <div key={idx} className="text-xs text-white/55 leading-relaxed">
-            {line}
-          </div>
-        ))}
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-white/70 text-sm">
+        {text}
       </div>
     );
   }
@@ -930,12 +990,9 @@ function blockPreview(b) {
   if (b.type === "save_contact") return "Save contact (.vcf)";
   if (b.type === "text") return d.text || "";
   if (b.type === "button") return `${d.label || "Button"} → ${d.url || ""}`;
-  if (b.type === "contact") {
-    const items = Array.isArray(d.items) ? d.items : [];
-    return items.length ? `${items.length} fields` : "Contact fields";
-  }
+  if (b.type === "contact") return `${(d.fields || []).length} fields`;
   if (b.type === "socials") return `${(d.items || []).length} links`;
-  if (b.type === "footer") return "Footer text";
+  if (b.type === "footer") return d.text || "Footer";
   if (b.type === "divider") return "—";
   return "";
 }
@@ -980,37 +1037,6 @@ function Textarea(props) {
   );
 }
 
-const KIND_OPTIONS = [
-  { value: "phone", label: "Phone" },
-  { value: "email", label: "Email" },
-  { value: "website", label: "Website" },
-  { value: "whatsapp", label: "WhatsApp" },
-  { value: "telegram", label: "Telegram" },
-  { value: "location", label: "Location" },
-  { value: "address", label: "Address" },
-  { value: "custom", label: "Custom" },
-];
-
-function Select({ value, onChange, options }) {
-  return (
-    <select
-      value={value}
-      onChange={onChange}
-      className={cn(
-        "w-full rounded-2xl border border-white/10 bg-black/20 text-white",
-        "px-3 py-2 outline-none",
-        "focus:border-white/25 focus:bg-black/30 transition"
-      )}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value} className="bg-black">
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
 function BlockInspector({ block, onChange }) {
   const d = block.data || {};
 
@@ -1048,27 +1074,24 @@ function BlockInspector({ block, onChange }) {
     );
   }
 
-  // ✅ Save contact inspector: dynamic items
+  // ✅ Save Contact with dynamic fields
   if (block.type === "save_contact") {
-    const items = Array.isArray(d.items) ? d.items : defaultSaveContactItems();
+    const fields = Array.isArray(d.fields) ? d.fields : [];
 
     function addField() {
       onChange({
-        items: [
-          { id: uid(), kind: "custom", label: "New field", value: "" },
-          ...items,
-        ],
+        fields: [{ id: uid(), label: "New field", value: "" }, ...fields],
       });
     }
 
-    function updateField(itemId, patch) {
+    function updateField(fieldId, patch) {
       onChange({
-        items: items.map((it) => (it.id === itemId ? { ...it, ...patch } : it)),
+        fields: fields.map((f) => (f.id === fieldId ? { ...f, ...patch } : f)),
       });
     }
 
-    function removeField(itemId) {
-      onChange({ items: items.filter((it) => it.id !== itemId) });
+    function removeField(fieldId) {
+      onChange({ fields: fields.filter((f) => f.id !== fieldId) });
     }
 
     return (
@@ -1094,36 +1117,34 @@ function BlockInspector({ block, onChange }) {
         </div>
 
         <div className="space-y-2">
-          {items.map((it) => (
-            <div key={it.id} className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Type">
-                  <Select
-                    value={it.kind || "custom"}
-                    onChange={(e) => updateField(it.id, { kind: e.target.value })}
-                    options={KIND_OPTIONS}
-                  />
-                </Field>
-                <Field label="Label">
-                  <Input
-                    value={it.label || ""}
-                    onChange={(e) => updateField(it.id, { label: e.target.value })}
-                    placeholder="e.g. Location"
-                  />
-                </Field>
-              </div>
+          {fields.length === 0 && (
+            <div className="text-sm text-white/60">No fields yet. Add one.</div>
+          )}
+
+          {fields.map((f) => (
+            <div
+              key={f.id}
+              className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2"
+            >
+              <Field label="Label">
+                <Input
+                  value={f.label || ""}
+                  onChange={(e) => updateField(f.id, { label: e.target.value })}
+                  placeholder="Phone / Email / Website / Location..."
+                />
+              </Field>
 
               <Field label="Value">
                 <Input
-                  value={it.value || ""}
-                  onChange={(e) => updateField(it.id, { value: e.target.value })}
-                  placeholder="Type value..."
+                  value={f.value || ""}
+                  onChange={(e) => updateField(f.id, { value: e.target.value })}
+                  placeholder="Enter value..."
                 />
               </Field>
 
               <button
                 type="button"
-                onClick={() => removeField(it.id)}
+                onClick={() => removeField(f.id)}
                 className="w-full rounded-2xl border border-white/10 bg-black/20 text-white/70 hover:text-red-200 hover:border-red-500/30 py-2 transition"
               >
                 Remove
@@ -1133,7 +1154,7 @@ function BlockInspector({ block, onChange }) {
         </div>
 
         <div className="text-[11px] text-white/45">
-          Note: vCard downloads use phone/email/website fields. Extra fields are shown on the page (not in vCard yet).
+          Tip: Use labels like <b>Phone</b>, <b>Email</b>, <b>Website</b>, <b>Location</b> for best vCard output.
         </div>
       </div>
     );
@@ -1162,27 +1183,24 @@ function BlockInspector({ block, onChange }) {
     );
   }
 
-  // ✅ Contact inspector: dynamic items
+  // ✅ Contact with dynamic fields
   if (block.type === "contact") {
-    const items = Array.isArray(d.items) ? d.items : defaultContactItems();
+    const fields = Array.isArray(d.fields) ? d.fields : [];
 
     function addField() {
       onChange({
-        items: [
-          { id: uid(), kind: "custom", label: "New field", value: "" },
-          ...items,
-        ],
+        fields: [{ id: uid(), label: "New field", value: "" }, ...fields],
       });
     }
 
-    function updateField(itemId, patch) {
+    function updateField(fieldId, patch) {
       onChange({
-        items: items.map((it) => (it.id === itemId ? { ...it, ...patch } : it)),
+        fields: fields.map((f) => (f.id === fieldId ? { ...f, ...patch } : f)),
       });
     }
 
-    function removeField(itemId) {
-      onChange({ items: items.filter((it) => it.id !== itemId) });
+    function removeField(fieldId) {
+      onChange({ fields: fields.filter((f) => f.id !== fieldId) });
     }
 
     return (
@@ -1200,36 +1218,34 @@ function BlockInspector({ block, onChange }) {
         </div>
 
         <div className="space-y-2">
-          {items.map((it) => (
-            <div key={it.id} className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <Field label="Type">
-                  <Select
-                    value={it.kind || "custom"}
-                    onChange={(e) => updateField(it.id, { kind: e.target.value })}
-                    options={KIND_OPTIONS}
-                  />
-                </Field>
-                <Field label="Label">
-                  <Input
-                    value={it.label || ""}
-                    onChange={(e) => updateField(it.id, { label: e.target.value })}
-                    placeholder="e.g. WhatsApp"
-                  />
-                </Field>
-              </div>
+          {fields.length === 0 && (
+            <div className="text-sm text-white/60">No fields yet. Add one.</div>
+          )}
+
+          {fields.map((f) => (
+            <div
+              key={f.id}
+              className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2"
+            >
+              <Field label="Label">
+                <Input
+                  value={f.label || ""}
+                  onChange={(e) => updateField(f.id, { label: e.target.value })}
+                  placeholder="Phone / Email / Website / Location..."
+                />
+              </Field>
 
               <Field label="Value">
                 <Input
-                  value={it.value || ""}
-                  onChange={(e) => updateField(it.id, { value: e.target.value })}
-                  placeholder="Type value..."
+                  value={f.value || ""}
+                  onChange={(e) => updateField(f.id, { value: e.target.value })}
+                  placeholder="Enter value..."
                 />
               </Field>
 
               <button
                 type="button"
-                onClick={() => removeField(it.id)}
+                onClick={() => removeField(f.id)}
                 className="w-full rounded-2xl border border-white/10 bg-black/20 text-white/70 hover:text-red-200 hover:border-red-500/30 py-2 transition"
               >
                 Remove
@@ -1246,7 +1262,7 @@ function BlockInspector({ block, onChange }) {
 
     function add() {
       onChange({
-        items: [{ id: uid(), label: "TikTok", url: "https://tiktok.com/@" }, ...items],
+        items: [{ id: uid(), label: "New", url: "https://..." }, ...items],
       });
     }
     function update(itemId, patch) {
@@ -1282,18 +1298,30 @@ function BlockInspector({ block, onChange }) {
               key={it.id}
               className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2"
             >
-              <Field label="Label (Instagram, TikTok, X...)">
+              <Field label="Label">
                 <Input
-                  value={it.label}
+                  value={it.label || ""}
                   onChange={(e) => update(it.id, { label: e.target.value })}
                 />
               </Field>
               <Field label="URL">
                 <Input
-                  value={it.url}
+                  value={it.url || ""}
                   onChange={(e) => update(it.id, { url: e.target.value })}
                 />
               </Field>
+
+              <div className="text-xs text-white/55">
+                Preview icon:{" "}
+                <span className="inline-flex items-center gap-2">
+                  {(() => {
+                    const Icon = pickSocialIcon(it.label, it.url);
+                    return <Icon size={16} />;
+                  })()}
+                  <span className="text-white/70">{it.label || "Link"}</span>
+                </span>
+              </div>
+
               <button
                 type="button"
                 onClick={() => remove(it.id)}
@@ -1304,67 +1332,20 @@ function BlockInspector({ block, onChange }) {
             </div>
           ))}
         </div>
-
-        <div className="text-[11px] text-white/45">
-          Tip: Write label like “TikTok” and icon will match automatically.
-        </div>
       </div>
     );
   }
 
-  // ✅ Footer inspector
   if (block.type === "footer") {
-    const lines = Array.isArray(d.lines)
-      ? d.lines
-      : d.text
-      ? [d.text]
-      : ["Made with SmartCard"];
-
-    function addLine() {
-      onChange({ lines: ["New line", ...lines] });
-    }
-    function updateLine(idx, val) {
-      onChange({ lines: lines.map((l, i) => (i === idx ? val : l)) });
-    }
-    function removeLine(idx) {
-      onChange({ lines: lines.filter((_, i) => i !== idx) });
-    }
-
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-white/80 font-medium">Footer lines</div>
-          <button
-            type="button"
-            onClick={addLine}
-            className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl text-sm border border-white/10 bg-white/5 text-white/80 hover:bg-white/10 hover:text-white transition"
-          >
-            <Plus size={16} />
-            Add line
-          </button>
-        </div>
-
-        <div className="space-y-2">
-          {lines.map((line, idx) => (
-            <div key={idx} className="rounded-2xl border border-white/10 bg-white/5 p-3 space-y-2">
-              <Field label={`Line ${idx + 1}`}>
-                <Input value={line} onChange={(e) => updateLine(idx, e.target.value)} />
-              </Field>
-
-              <button
-                type="button"
-                onClick={() => removeLine(idx)}
-                className="w-full rounded-2xl border border-white/10 bg-black/20 text-white/70 hover:text-red-200 hover:border-red-500/30 py-2 transition"
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-        </div>
-
-        <div className="text-[11px] text-white/45">
-          Add a description, tagline, address, copyright, etc.
-        </div>
+        <Field label="Footer text">
+          <Textarea
+            value={d.text || ""}
+            onChange={(e) => onChange({ text: e.target.value })}
+            placeholder="Write a short footer message..."
+          />
+        </Field>
       </div>
     );
   }
